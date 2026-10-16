@@ -1,0 +1,36 @@
+# Local experiment output and research archives
+runs/
+outputs/
+experiment_results/
+sensitivity_analysis/
+case_analysis/
+entry_validation.json
+publication_sources.json
+parallel_dispatch.lock
+.qa/
+/Latex/
+
+# Supply real datasets locally
+/Real Data/*
+!/Real Data/README.md
+
+# Python and R state
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+*.log
+
+# Local credentials and editor files
+.env
+.env.*
+*.pem
+*.key
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
