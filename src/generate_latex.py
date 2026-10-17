@@ -14,7 +14,7 @@ SETTINGS=[('sim_NOelastic_net','Sim Normal-EN'),('sim1elastic_net','Sim 1-EN'),
  ('Concreterandom_forest','Concrete-RF'),('Diabeteselastic_net','Diabetes-EN'),
  ('Diabetesrandom_forest','Diabetes-RF'),('WineRedelastic_net','Wine Red-EN'),('WineRedrandom_forest','Wine Red-RF')]
 METHODS=[('Split CP','SplitCP'),('LCP-Gaussian','LCP_Gaussian'),('LCP-KNN','LCP_kNN'),
- ('LWCI','LWCI'),('WCP','WCP'),('ACPI','ACPI'),('C-DRPI','DRF'),('G-DRPI','MAP_DNCPmini')]
+ ('LWCI','LWCI'),('WCP','WCP'),('ACPI','ACPI'),('C-DRPI','C-DRPI'),('G-DRPI','G-DRPI')]
 def read(p):
  with p.open(encoding='utf-8-sig',newline='') as f:return list(csv.DictReader(f))
 def stats(rows, expected):
@@ -36,7 +36,7 @@ def main():
  ap=argparse.ArgumentParser(description=__doc__)
  ap.add_argument('--paper-root',type=Path,default=PROJECT/'Latex/DRPI_revised_source_20261002')
  ap.add_argument('--result-root',type=Path,default=default_path('result_root',ROOT/'experiment_results'))
- ap.add_argument('--sensitivity-root',type=Path,default=default_path('sensitivity_root',ROOT/'sensitivity_analysis/dncpmini_lambda'))
+ ap.add_argument('--sensitivity-root',type=Path,default=default_path('sensitivity_root',ROOT/'sensitivity_analysis/G-DRPI_lambda'))
  ap.add_argument('--stability-csv',type=Path,default=default_path('stability_csv'))
  ap.add_argument('--case-summary',type=Path,default=default_path('case_summary'))
  ap.add_argument('--theory-csv',type=Path,default=default_path('theory_csv'))
@@ -56,10 +56,8 @@ def main():
   for entry in audit['inputs']:
    if hashlib.sha256(Path(entry['path']).read_bytes()).hexdigest()!=entry['sha256']:
     raise ValueError('Audited result changed: '+entry['path'])
- def result_path(folder,legacy):
-  p=args.result_root/folder/(legacy+'.csv')
-  if not p.exists():p=args.result_root/folder/({'DRF':'DNCP','MAP_DNCPmini':'DNCP-mini'}.get(legacy,legacy)+'.csv')
-  return source(p)
+ def result_path(folder,name):
+  return source(args.result_root/folder/(name+'.csv'))
  for ti,(folder,title) in enumerate(SETTINGS,4):
   lines=[];seed_reference=None
   for label,name in METHODS:
@@ -73,7 +71,7 @@ def main():
      coverage_var=values[1],length_mean=values[2],length_var=values[3]))
   target=paper/f'tables/table_{ti:02}.tex';updates[target]=replace_body(target.read_text(encoding='utf-8'),lines)
  # Table 1 retains the published 48 cell matrix.
- tau_path=source(args.stability_csv or args.result_root/'DNCPmini_tau_table.csv')
+ tau_path=source(args.stability_csv or args.result_root/'G-DRPI_tau_table.csv')
  with tau_path.open(encoding='utf-8-sig',newline='') as f:tau=list(csv.reader(f))
  if len(tau)!=6 or any(len(r)!=13 for r in tau):raise ValueError('Expected a 6x13 stability matrix')
  lines=[]
@@ -89,8 +87,8 @@ def main():
  states.update({f'table_{ti:02}':'generated from the supplied main-result root (100 splits)' for ti in range(4,17)})
  if args.case_summary:
   rows=read(source(args.case_summary));lookup={r['Algorithm']:r for r in rows};lines=[]
-  for label,legacy in METHODS:
-   name={'DRF':'DNCP','MAP_DNCPmini':'DNCP-mini'}.get(legacy,legacy);row=lookup[name]
+  for label,name in METHODS:
+   row=lookup[name]
    if int(row['Repetitions'])!=100:raise ValueError('Table 2 requires 100 verified repetitions per method')
    reps=read(source(args.case_summary.parent/f'{name}_replicates.csv'))
    for rep in reps:
@@ -114,7 +112,7 @@ def main():
  for folder,title in SETTINGS:
   means=[]
   for value in pooled:
-   tag=f'{value:g}';p=source(args.sensitivity_root/folder/f'DNCPmini_lambda_{tag}.csv')
+   tag=f'{value:g}';p=source(args.sensitivity_root/folder/f'G-DRPI_lambda_{tag}.csv')
    data=read(p);values=stats(data,args.expected_seeds);means.append(values[0]);pooled[value].append(values[0])
    sensitivity_summary.append(dict(DatasetModel=folder,Lambda=value,Seeds=len(data),MeanCoverage=values[0],
      VarCoverage=values[1],MeanLength=values[2],VarLength=values[3],ResultFile=f'{folder}/{p.name}'))
@@ -128,7 +126,7 @@ def main():
  if args.check_only:
   print(json.dumps({'tables_checked':len(updates),'source_files':len(inputs),'states':states},ensure_ascii=False,indent=2));return
  for p,text in updates.items():p.write_text(text,encoding='utf-8')
- for path,rows in [(paper/'figures/stability_summary.csv',summary),(args.sensitivity_root/'DNCPmini_lambda_sensitivity_summary.csv',sensitivity_summary)]:
+ for path,rows in [(paper/'figures/stability_summary.csv',summary),(args.sensitivity_root/'G-DRPI_lambda_sensitivity_summary.csv',sensitivity_summary)]:
   with path.open('w',encoding='utf-8',newline='') as f:
    w=csv.DictWriter(f,fieldnames=rows[0]);w.writeheader();w.writerows(rows)
  if args.sc_reference:

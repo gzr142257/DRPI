@@ -11,7 +11,9 @@ The core experiments can be run independently using the commands in the root REA
 
 Use each tool's `--help` for its options. These are workflow-specific utilities, not general entry points for a fresh checkout.
 
-`generate_latex.py` defaults to manuscript templates beneath `Latex/DRPI_revised_source_20261002/` and legacy results beneath `src/experiment_results/`. Supply `--paper-root`, `--result-root`, `--sensitivity-root`, `--stability-csv`, and the other applicable options for your own inputs. Its `--check-only` mode still requires the source results and existing manuscript templates. `--redraw` additionally requires the manuscript's `figures/redraw_stability.py`.
+`generate_latex.py` defaults to manuscript templates beneath `Latex/DRPI_revised_source_20261002/` and saved results beneath `src/experiment_results/`. Supply `--paper-root`, `--result-root`, `--sensitivity-root`, `--stability-csv`, and the other applicable options for your own inputs. Its `--check-only` mode still requires the source results and existing manuscript templates. `--redraw` additionally requires the manuscript's `figures/redraw_stability.py`.
+
+All tools expect `C-DRPI.csv` and `G-DRPI.csv` for the main results, `G-DRPI_lambda_<value>.csv` for sensitivity results, and `G-DRPI_tau_table.csv` for the stability table. The default sensitivity directory is `src/sensitivity_analysis/G-DRPI_lambda/`. Case summaries use `C-DRPI` and `G-DRPI` in the `Algorithm` column and matching `<method>_replicates.csv` filenames. Normalize externally supplied result collections to this naming convention before using the tools; there is no alternate-filename fallback.
 
 The original `publication_sources.json` is deliberately not included because it pins a historical local run. If you create a new one beside `generate_latex.py`, its paths are interpreted relative to `src/`. Audit manifests contain result paths and hashes; old absolute paths must resolve to the same files in the current environment before verification can succeed. Do not treat an absent historical manifest as proof that results were independently reproduced.
 

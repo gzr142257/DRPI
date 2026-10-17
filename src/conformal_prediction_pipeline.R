@@ -6,7 +6,7 @@ if (!length(.entry_file)) stop("Use Rscript to run this file.")
 source(file.path(dirname(.entry_path), "run_records.R"))
 .drpi_main <- function() {
   script_dir <- dirname(.entry_path)
-# Unified conformal prediction pipeline with ACPI, DNCP, and DNCP-mini variants.
+# Unified conformal prediction pipeline with ACPI, C-DRPI, and G-DRPI variants.
 # Real datasets kept in this script: Diabetes, WineRed, Concrete, and Boston.
 
 # Configuration
@@ -16,9 +16,9 @@ RUN_LCP_G      <- TRUE
 RUN_LCP_K      <- TRUE 
 RUN_LWCI       <- TRUE
 RUN_WCP        <- TRUE 
-RUN_DNCP       <- TRUE
+RUN_C_DRPI     <- TRUE
 RUN_ACPI       <- TRUE
-RUN_DNCP_MINI  <- TRUE
+RUN_G_DRPI     <- TRUE
 
 n_seeds       <- 100
 start_seed_no <- 1
@@ -35,11 +35,11 @@ rf_ntree     <- 100
 acpi_scan_steps <- 40
 acpi_nodesize   <- 10
 
-dncp_family  <- "JSUo"
-dncp_ntree   <- 100
+c_drpi_family  <- "JSUo"
+c_drpi_ntree   <- 100
 
-dncpmini_optim_maxit <- 500
-dncpmini_lambda <- 0.5
+g_drpi_optim_maxit <- 500
+g_drpi_lambda <- 0.5
 
 lcp_bandwidth  <- NULL
 lcp_k          <- 100
@@ -52,11 +52,9 @@ concrete_path <- file.path(dirname(script_dir), "Real Data", "concrete.csv")
 
 wine_red_path   <- file.path(dirname(script_dir), "Real Data", "red_wine.csv")
 
-# Command-line export defaults. These are overridden by --export-root and
-# --mirror-export-root when the script is launched from the provided CMD files.
+# Command-line export defaults, overridden by --export-root.
 export_root <- file.path(.drpi_record$dir, "results")
 mirror_export_root <- NULL
-legacy_result_names <- TRUE
 
 
 
@@ -70,12 +68,20 @@ cli_args <- commandArgs(TRUE)
 }
 if ("--help" %in% cli_args) {
   cat("--stage=main|case337|frequency --dataset=sim_NO|sim1|sim2|sim3|Diabetes|Concrete|WineRed|Boston\n",
-      "--base-model=elastic_net|random_forest|ols --method=all|both|splitcp|lcp-gaussian|lcp-knn|lwci|wcp|acpi|dncp|dncp-mini\n",
+      "--base-model=elastic_net|random_forest|ols --method=all|both|splitcp|lcp-gaussian|lcp-knn|lwci|wcp|acpi|C-DRPI|G-DRPI\n",
       "Comma-separated methods are supported. --n-seeds=100 --start-seed=1 --alpha=0.1\n",
-      "--data-root=PATH --export-root=PATH --runs-root=PATH --legacy-names=true\n",
+      "--data-root=PATH --export-root=PATH --runs-root=PATH\n",
+      "--g-drpi-lambda=0.5 --lambda-sensitivity-output=true|false\n",
       "--case-id=337 --case-seed-start=485 --case-seed-end=974 --case-expected-count=100\n")
   return(invisible(NULL))
 }
+allowed_options <- c("stage", "dataset", "base-model", "method", "n-seeds", "start-seed", "alpha",
+  "g-drpi-lambda", "data-root", "diabetes-path", "concrete-path", "wine-red-path", "boston-path",
+  "export-root", "runs-root", "lambda-sensitivity-output", "local-output", "case-id",
+  "case-seed-start", "case-seed-end", "case-expected-count", "check-config")
+option_names <- sub("=.*$", "", sub("^--", "", cli_args))
+if (any(!startsWith(cli_args, "--") | !grepl("=", cli_args, fixed = TRUE)) ||
+    any(!option_names %in% allowed_options)) stop("Unknown option or invalid syntax; use --help and --name=value.")
 stage <- .cli_value("stage", "main")
 if (!stage %in% c("main", "case337", "frequency")) stop("Unknown stage.")
 dataset_name <- .cli_value("dataset", dataset_name)
@@ -83,48 +89,48 @@ base_model <- .cli_value("base-model", base_model)
 n_seeds <- as.integer(.cli_value("n-seeds", n_seeds))
 start_seed_no <- as.integer(.cli_value("start-seed", start_seed_no))
 alpha_level <- as.numeric(.cli_value("alpha", alpha_level))
-dncpmini_lambda <- as.numeric(.cli_value("dncpmini-lambda", dncpmini_lambda))
+g_drpi_lambda <- as.numeric(.cli_value("g-drpi-lambda", g_drpi_lambda))
 data_root <- .cli_value("data-root", file.path(dirname(script_dir), "Real Data"))
 diabetes_path <- .cli_value("diabetes-path", file.path(data_root, "diabetes.csv"))
 concrete_path <- .cli_value("concrete-path", file.path(data_root, "concrete.csv"))
 wine_red_path <- .cli_value("wine-red-path", file.path(data_root, "red_wine.csv"))
 boston_path <- .cli_value("boston-path", file.path(data_root, "Boston.csv"))
 export_root <- .cli_value("export-root", export_root)
-legacy_result_names <- .cli_bool("legacy-names", TRUE)
 lambda_sensitivity_output <- .cli_bool("lambda-sensitivity-output", FALSE)
 if (.cli_bool("local-output", FALSE)) export_root <- file.path(script_dir, "experiment_results")
 if (lambda_sensitivity_output) export_root <- .cli_value("export-root", file.path(.drpi_record$dir, "sensitivity"))
 selected_method <- tolower(.cli_value("method", "all"))
 methods <- trimws(strsplit(selected_method, ",", fixed = TRUE)[[1]])
-methods[methods == "c-drpi"] <- "dncp"
-methods[methods %in% c("g-drpi", "dncpmini", "mini")] <- "dncp-mini"
-if ("all" %in% methods) methods <- c("splitcp", "lcp-gaussian", "lcp-knn", "lwci", "wcp", "acpi", "dncp", "dncp-mini")
-if ("both" %in% methods) methods <- unique(c(setdiff(methods, "both"), "dncp", "dncp-mini"))
-if (any(!methods %in% c("splitcp", "lcp-gaussian", "lcp-knn", "lwci", "wcp", "acpi", "dncp", "dncp-mini"))) stop("Unknown method.")
+methods[methods == "c-drpi"] <- "C-DRPI"
+methods[methods == "g-drpi"] <- "G-DRPI"
+supported_methods <- c("splitcp", "lcp-gaussian", "lcp-knn", "lwci", "wcp", "acpi", "C-DRPI", "G-DRPI")
+if (!length(methods) || any(!methods %in% c(supported_methods, "all", "both"))) stop("Unknown method; use --help.")
+if ("all" %in% methods) methods <- supported_methods
+if ("both" %in% methods) methods <- unique(c(setdiff(methods, "both"), "C-DRPI", "G-DRPI"))
 RUN_SPLIT_CP <- "splitcp" %in% methods
 RUN_LCP_G <- "lcp-gaussian" %in% methods
 RUN_LCP_K <- "lcp-knn" %in% methods
 RUN_LWCI <- "lwci" %in% methods
 RUN_WCP <- "wcp" %in% methods
 RUN_ACPI <- "acpi" %in% methods
-RUN_DNCP <- "dncp" %in% methods
-RUN_DNCP_MINI <- "dncp-mini" %in% methods
+RUN_C_DRPI <- "C-DRPI" %in% methods
+RUN_G_DRPI <- "G-DRPI" %in% methods
 case_id <- as.integer(.cli_value("case-id", 337))
 case_seed_start <- as.integer(.cli_value("case-seed-start", 485))
 case_seed_end <- as.integer(.cli_value("case-seed-end", 974))
 case_expected_count <- as.integer(.cli_value("case-expected-count", 100))
 if (!is.finite(n_seeds) || n_seeds < 1 || !is.finite(start_seed_no) || start_seed_no < 1) stop("Invalid seed configuration.")
 if (!is.finite(alpha_level) || alpha_level <= 0 || alpha_level >= 1) stop("alpha must be in (0,1).")
-if (!is.finite(dncpmini_lambda) || dncpmini_lambda < 0) stop("lambda must be nonnegative.")
+if (!is.finite(g_drpi_lambda) || g_drpi_lambda < 0) stop("lambda must be nonnegative.")
 if (!base_model %in% c("elastic_net", "random_forest", "ols")) stop("Unknown base model.")
 if (!is.finite(case_id) || case_id < 1 || !is.finite(case_seed_start) || !is.finite(case_seed_end) || case_seed_start < 1 || case_seed_end < case_seed_start || !is.finite(case_expected_count) || case_expected_count < 1) stop("Invalid case configuration.")
 if (stage != "main" && (dataset_name != "Diabetes" || base_model != "elastic_net")) stop("Case/frequency entries require Diabetes + elastic_net.")
 .drpi_record$output_roots <- export_root
-drpi_config(as.list(environment())[c("stage", "dataset_name", "base_model", "methods", "n_seeds", "start_seed_no", "alpha_level", "dncpmini_lambda", "data_root", "export_root", "case_id", "case_seed_start", "case_seed_end", "case_expected_count", "alpha_en", "rf_ntree", "dncp_ntree", "lcp_k", "dncpmini_optim_maxit", "legacy_result_names")])
+drpi_config(as.list(environment())[c("stage", "dataset_name", "base_model", "methods", "n_seeds", "start_seed_no", "alpha_level", "g_drpi_lambda", "data_root", "export_root", "case_id", "case_seed_start", "case_seed_end", "case_expected_count", "alpha_en", "rf_ntree", "c_drpi_ntree", "lcp_k", "g_drpi_optim_maxit")])
 cat("Stage:", stage, "Dataset:", dataset_name, "Model:", base_model, "Methods:", paste(methods, collapse=","), "\n")
 if (.cli_bool("check-config", FALSE)) {
-  drpi_write_csv(data.frame(Method=c("splitcp","lcp-gaussian","lcp-knn","lwci","wcp","acpi","dncp","dncp-mini"),
-    Enabled=c(RUN_SPLIT_CP,RUN_LCP_G,RUN_LCP_K,RUN_LWCI,RUN_WCP,RUN_ACPI,RUN_DNCP,RUN_DNCP_MINI)),
+  drpi_write_csv(data.frame(Method=c("splitcp","lcp-gaussian","lcp-knn","lwci","wcp","acpi","C-DRPI","G-DRPI"),
+    Enabled=c(RUN_SPLIT_CP,RUN_LCP_G,RUN_LCP_K,RUN_LWCI,RUN_WCP,RUN_ACPI,RUN_C_DRPI,RUN_G_DRPI)),
     file.path(.drpi_record$dir,"method_flags.csv"))
   return(invisible(NULL))
 }
@@ -191,7 +197,7 @@ prepare_with_dummies <- function(df, yname) {
          "TF"   = TF(),
          "JSUo" = JSUo(),
          "SN1"  = SN1(),
-         stop("Unknown dncp_family ('NO','TF','JSUo','SN1')."))
+         stop("Unknown C-DRPI residual family ('NO','TF','JSUo','SN1')."))
 }
 .get_param_names <- function(tag) {
   switch(tag,
@@ -202,11 +208,11 @@ prepare_with_dummies <- function(df, yname) {
          stop("Unknown distribution"))
 }
 .get_qfun <- function(tag)  get(paste0("q", tag),  mode="function")
-.dncp_family_for_dataset <- function(dataset, default_family = dncp_family) {
+.c_drpi_family_for_dataset <- function(dataset, default_family = c_drpi_family) {
   if (dataset == "sim_NO") return("NO")
   return(default_family)
 }
-.dncpmini_family_for_dataset <- function(dataset) {
+.g_drpi_family_for_dataset <- function(dataset) {
   if (dataset == "sim_NO") return("NO")
   return("JSUo")
 }
@@ -362,11 +368,11 @@ smooth.spline.funs <- function(df=NULL, spar=NULL, cv=TRUE, tol.fact=1e-6) {
        center = y_te_hat, alpha_star = calib$alpha_star)
 }
 
-# DNCP-mini residual distribution fit
+# G-DRPI residual distribution fit
 fit_jsu_mle_global <- function(
     resid_vec,
     n_cal = NULL,
-    optim_maxit = dncpmini_optim_maxit
+    optim_maxit = g_drpi_optim_maxit
 ) {
   resid <- as.numeric(resid_vec)
   resid <- resid[is.finite(resid)]
@@ -435,18 +441,18 @@ fit_normal_mle_global <- function(resid_vec) {
 }
 
 fit_residual_mle_global <- function(resid_vec, family = "JSUo", n_cal = NULL,
-                                    optim_maxit = dncpmini_optim_maxit) {
+                                    optim_maxit = g_drpi_optim_maxit) {
   family <- match.arg(family, c("JSUo", "NO"))
   if (family == "NO") return(fit_normal_mle_global(resid_vec))
   fit_jsu_mle_global(resid_vec, n_cal = n_cal, optim_maxit = optim_maxit)
 }
 
-.run_dncpmini <- function(
+.run_g_drpi <- function(
     x_ca, y_ca,
     x_te, y_te,
     yhat_ca, yhat_te,
     alpha = 0.10, k_tail = 2,
-    lambda = dncpmini_lambda,
+    lambda = g_drpi_lambda,
     family = "JSUo",
     seed = 1
 ) {
@@ -499,7 +505,7 @@ fit_residual_mle_global <- function(resid_vec, family = "JSUo", n_cal = NULL,
   t_elapsed <- as.numeric((proc.time() - t0)[["elapsed"]])
   
   cat(sprintf(
-    "DNCP-mini | residuals=%d | ",
+    "G-DRPI | residuals=%d | ",
     n_cal_orig
   ))
   if (family == "NO") {
@@ -638,10 +644,10 @@ colnames(x_all) <- make.names(colnames(x_all), unique = TRUE)
 storage.mode(x_all) <- "double"
 
 cat("Dataset:", dataset_name, " | n =", nrow(x_all), " p =", ncol(x_all), "\n")
-dncp_family_active <- .dncp_family_for_dataset(dataset_name)
-dncpmini_family_active <- .dncpmini_family_for_dataset(dataset_name)
-cat(sprintf("DNCP residual family: %s\n", dncp_family_active))
-cat(sprintf("DNCP-mini residual family: %s\n", dncpmini_family_active))
+c_drpi_family_active <- .c_drpi_family_for_dataset(dataset_name)
+g_drpi_family_active <- .g_drpi_family_for_dataset(dataset_name)
+cat(sprintf("C-DRPI residual family: %s\n", c_drpi_family_active))
+cat(sprintf("G-DRPI residual family: %s\n", g_drpi_family_active))
 
 input_path <- switch(dataset_name, Diabetes=diabetes_path, Concrete=concrete_path, WineRed=wine_red_path, Boston=boston_path, "")
 if (nzchar(input_path)) drpi_inputs(input_path)
@@ -656,8 +662,8 @@ LCPG_Coverage <- LCPG_Length <- LCPG_Time <- numeric(0)
 LCPK_Coverage <- LCPK_Length <- LCPK_Time <- numeric(0)
 LWCI_Coverage <- LWCI_Length <- LWCI_Time <- numeric(0)
 WCP_Coverage  <- WCP_Length  <- WCP_Time  <- numeric(0)
-DNCP_Coverage <- DNCP_Length <- DNCP_Time <- numeric(0)
-DNCPmini_Coverage <- DNCPmini_Length <- DNCPmini_Time <- numeric(0)
+C_DRPI_Coverage <- C_DRPI_Length <- C_DRPI_Time <- numeric(0)
+G_DRPI_Coverage <- G_DRPI_Length <- G_DRPI_Time <- numeric(0)
 ACPI_Coverage <- ACPI_Length <- ACPI_Time <- numeric(0)
 
 ensure_dir <- function(path) if (!dir.exists(path)) dir.create(path, recursive = TRUE, showWarnings = FALSE)
@@ -689,7 +695,7 @@ while (valid_count < n_seeds) {
   x_ca <- x_ca[ca_keep,,drop=FALSE]; y_ca <- y_ca[ca_keep]
   x_te <- x_te[te_keep,,drop=FALSE]; y_te <- y_te[te_keep]
   
-  need_yhat <- any(c(RUN_SPLIT_CP, RUN_LCP_G, RUN_LCP_K, RUN_LWCI, RUN_WCP, RUN_DNCP, RUN_DNCP_MINI))
+  need_yhat <- any(c(RUN_SPLIT_CP, RUN_LCP_G, RUN_LCP_K, RUN_LWCI, RUN_WCP, RUN_C_DRPI, RUN_G_DRPI))
   if (need_yhat) {
     yhat_tr <- fit_and_predict(base_model, x_tr, y_tr, x_tr, alpha_en, rf_ntree)
     yhat_ca <- fit_and_predict(base_model, x_tr, y_tr, x_ca, alpha_en, rf_ntree)
@@ -701,8 +707,8 @@ while (valid_count < n_seeds) {
   tmp_LCPK_Coverage <- tmp_LCPK_Length <- tmp_LCPK_Time <- numeric(0)
   tmp_LWCI_Coverage <- tmp_LWCI_Length <- tmp_LWCI_Time <- numeric(0)
   tmp_WCP_Coverage  <- tmp_WCP_Length  <- tmp_WCP_Time <- numeric(0)
-  tmp_DNCP_Coverage <- tmp_DNCP_Length <- tmp_DNCP_Time <- numeric(0)
-  tmp_DNCPmini_Coverage <- tmp_DNCPmini_Length <- tmp_DNCPmini_Time <- numeric(0)
+  tmp_C_DRPI_Coverage <- tmp_C_DRPI_Length <- tmp_C_DRPI_Time <- numeric(0)
+  tmp_G_DRPI_Coverage <- tmp_G_DRPI_Length <- tmp_G_DRPI_Time <- numeric(0)
   tmp_ACPI_Coverage <- tmp_ACPI_Length <- tmp_ACPI_Time <- numeric(0)
   
   if (RUN_SPLIT_CP) {
@@ -823,7 +829,7 @@ while (valid_count < n_seeds) {
     tmp_WCP_Time     <- c(tmp_WCP_Time,     t_wcp)
   }
   
-  if (RUN_DNCP) {
+  if (RUN_C_DRPI) {
       t0 <- proc.time()
       yhat_ca <- fit_and_predict(base_model, x_tr, y_tr, x_ca, alpha_en, rf_ntree)
       yhat_te <- fit_and_predict(base_model, x_tr, y_tr, x_te, alpha_en, rf_ntree)
@@ -837,9 +843,9 @@ while (valid_count < n_seeds) {
                                             minbucket = max(10,floor(0.2 * ncal_f)),
                                             mincriterion = 0.9)
       set.seed(current_seed)
-      gamlss_fam <- .get_family(dncp_family_active); param_names <- .get_param_names(dncp_family_active); qFUN <- .get_qfun(dncp_family_active)
+      gamlss_fam <- .get_family(c_drpi_family_active); param_names <- .get_param_names(c_drpi_family_active); qFUN <- .get_qfun(c_drpi_family_active)
       df_resid_model <- distforest(resid ~ ., data = df_ca_resid_f,
-                                   family = gamlss_fam, ntree = dncp_ntree,
+                                   family = gamlss_fam, ntree = c_drpi_ntree,
                                    control = ctrl_forest_resid, trace = FALSE)
       df_x_te <- as.data.frame(x_te, check.names = FALSE); colnames(df_x_te) <- colnames(x_all)
       par_te <- to_df_safe(predict(df_resid_model, newdata = df_x_te, type = "parameter"))
@@ -853,11 +859,11 @@ while (valid_count < n_seeds) {
       lower_pers <- y_center + (qL_resid - mu_resid); upper_pers <- y_center + (qU_resid - mu_resid)
       covered_pers <- as.numeric(y_te >= lower_pers & y_te <= upper_pers)
       pers_cov <- mean(covered_pers); pers_len <- mean(upper_pers - lower_pers)
-      t_dncp <- as.numeric((proc.time() - t0)[["elapsed"]])
-      cat(sprintf("DNCP | coverage = %.4f, length = %.4f, time = %.3fs\n", pers_cov, pers_len, t_dncp))
-      tmp_DNCP_Coverage <- c(tmp_DNCP_Coverage, pers_cov)
-      tmp_DNCP_Length   <- c(tmp_DNCP_Length,   pers_len)
-      tmp_DNCP_Time     <- c(tmp_DNCP_Time,     t_dncp)
+      t_c_drpi <- as.numeric((proc.time() - t0)[["elapsed"]])
+      cat(sprintf("C-DRPI | coverage = %.4f, length = %.4f, time = %.3fs\n", pers_cov, pers_len, t_c_drpi))
+      tmp_C_DRPI_Coverage <- c(tmp_C_DRPI_Coverage, pers_cov)
+      tmp_C_DRPI_Length   <- c(tmp_C_DRPI_Length,   pers_len)
+      tmp_C_DRPI_Time     <- c(tmp_C_DRPI_Time,     t_c_drpi)
   }
   
   
@@ -878,19 +884,19 @@ while (valid_count < n_seeds) {
     tmp_ACPI_Time     <- c(tmp_ACPI_Time,     t_acpi)
   }
   
-  if (RUN_DNCP_MINI) {
-    dncpmini_res <- .run_dncpmini(
+  if (RUN_G_DRPI) {
+    g_drpi_res <- .run_g_drpi(
       x_ca    = x_ca, y_ca = y_ca,
       x_te    = x_te, y_te = y_te,
       yhat_ca = yhat_ca, yhat_te = yhat_te,
       alpha   = alpha_level, k_tail = k_tail,
-      lambda  = dncpmini_lambda,
-      family  = dncpmini_family_active,
+      lambda  = g_drpi_lambda,
+      family  = g_drpi_family_active,
       seed    = current_seed
     )
-    tmp_DNCPmini_Coverage <- c(tmp_DNCPmini_Coverage, dncpmini_res$coverage)
-    tmp_DNCPmini_Length   <- c(tmp_DNCPmini_Length,   dncpmini_res$length)
-    tmp_DNCPmini_Time     <- c(tmp_DNCPmini_Time,     dncpmini_res$time)
+    tmp_G_DRPI_Coverage <- c(tmp_G_DRPI_Coverage, g_drpi_res$coverage)
+    tmp_G_DRPI_Length   <- c(tmp_G_DRPI_Length,   g_drpi_res$length)
+    tmp_G_DRPI_Time     <- c(tmp_G_DRPI_Time,     g_drpi_res$time)
   }
   
   
@@ -919,15 +925,15 @@ while (valid_count < n_seeds) {
     WCP_Length    <- c(WCP_Length,    tmp_WCP_Length)
     WCP_Time      <- c(WCP_Time,      tmp_WCP_Time)
   }
-  if (RUN_DNCP) {
-    DNCP_Coverage <- c(DNCP_Coverage, tmp_DNCP_Coverage)
-    DNCP_Length   <- c(DNCP_Length,   tmp_DNCP_Length)
-    DNCP_Time     <- c(DNCP_Time,     tmp_DNCP_Time)
+  if (RUN_C_DRPI) {
+    C_DRPI_Coverage <- c(C_DRPI_Coverage, tmp_C_DRPI_Coverage)
+    C_DRPI_Length   <- c(C_DRPI_Length,   tmp_C_DRPI_Length)
+    C_DRPI_Time     <- c(C_DRPI_Time,     tmp_C_DRPI_Time)
   }
-  if (RUN_DNCP_MINI) {
-    DNCPmini_Coverage <- c(DNCPmini_Coverage, tmp_DNCPmini_Coverage)
-    DNCPmini_Length   <- c(DNCPmini_Length,   tmp_DNCPmini_Length)
-    DNCPmini_Time     <- c(DNCPmini_Time,     tmp_DNCPmini_Time)
+  if (RUN_G_DRPI) {
+    G_DRPI_Coverage <- c(G_DRPI_Coverage, tmp_G_DRPI_Coverage)
+    G_DRPI_Length   <- c(G_DRPI_Length,   tmp_G_DRPI_Length)
+    G_DRPI_Time     <- c(G_DRPI_Time,     tmp_G_DRPI_Time)
   }
   if (RUN_ACPI) {
     ACPI_Coverage <- c(ACPI_Coverage, tmp_ACPI_Coverage)
@@ -961,12 +967,12 @@ results <- add_col(results, "LWCI_Time", LWCI_Time) }
 if (RUN_WCP)     { results <- add_col(results, "WCP_Cov",  WCP_Coverage)
 results <- add_col(results, "WCP_Len",  WCP_Length)
 results <- add_col(results, "WCP_Time", WCP_Time) }
-if (RUN_DNCP)   { results <- add_col(results, "DNCP_Cov",  DNCP_Coverage)
-results <- add_col(results, "DNCP_Len",  DNCP_Length)
-results <- add_col(results, "DNCP_Time", DNCP_Time) }
-if (RUN_DNCP_MINI){ results <- add_col(results, "DNCP-mini_Cov",  DNCPmini_Coverage)
-results <- add_col(results, "DNCP-mini_Len",  DNCPmini_Length)
-results <- add_col(results, "DNCP-mini_Time", DNCPmini_Time) }
+if (RUN_C_DRPI)   { results <- add_col(results, "C-DRPI_Cov",  C_DRPI_Coverage)
+results <- add_col(results, "C-DRPI_Len",  C_DRPI_Length)
+results <- add_col(results, "C-DRPI_Time", C_DRPI_Time) }
+if (RUN_G_DRPI){ results <- add_col(results, "G-DRPI_Cov",  G_DRPI_Coverage)
+results <- add_col(results, "G-DRPI_Len",  G_DRPI_Length)
+results <- add_col(results, "G-DRPI_Time", G_DRPI_Time) }
 if (RUN_ACPI){ results <- add_col(results, "ACPI_Cov",  ACPI_Coverage)
 results <- add_col(results, "ACPI_Len",  ACPI_Length)
 results <- add_col(results, "ACPI_Time", ACPI_Time) }
@@ -998,8 +1004,8 @@ safe_pr(RUN_LCP_K,      "LCP (kNN)",                LCPK_Coverage,    LCPK_Lengt
 safe_pr(RUN_LWCI,       "LWCI (spline)",            LWCI_Coverage,    LWCI_Length,    LWCI_Time)
 safe_pr(RUN_WCP,        "WCP",                      WCP_Coverage,     WCP_Length,     WCP_Time)
 safe_pr(RUN_ACPI,       "ACPI",                     ACPI_Coverage,    ACPI_Length,    ACPI_Time)
-safe_pr(RUN_DNCP,       "DNCP",       DNCP_Coverage,     DNCP_Length,     DNCP_Time)
-safe_pr(RUN_DNCP_MINI,  "DNCP-mini",  DNCPmini_Coverage, DNCPmini_Length, DNCPmini_Time)
+safe_pr(RUN_C_DRPI,       "C-DRPI",       C_DRPI_Coverage,     C_DRPI_Length,     C_DRPI_Time)
+safe_pr(RUN_G_DRPI,  "G-DRPI",  G_DRPI_Coverage, G_DRPI_Length, G_DRPI_Time)
 
 # Per-seed CSV export
 export_dir <- file.path(export_root, paste0(dataset_name, base_model))
@@ -1039,17 +1045,14 @@ write_method_csv(RUN_LCP_K,    "LCP_kNN",          LCPK_Coverage,    LCPK_Length
 write_method_csv(RUN_LWCI,     "LWCI",             LWCI_Coverage,    LWCI_Length)
 write_method_csv(RUN_WCP,      "WCP",              WCP_Coverage,     WCP_Length)
 write_method_csv(RUN_ACPI,     "ACPI",             ACPI_Coverage,    ACPI_Length)
-dncp_export_name <- if (legacy_result_names) "DRF" else "DNCP"
-lambda_tag <- format(dncpmini_lambda, scientific = FALSE, trim = TRUE)
-dncpmini_export_name <- if (exists("lambda_sensitivity_output") && lambda_sensitivity_output) {
-  paste0("DNCPmini_lambda_", lambda_tag)
-} else if (legacy_result_names) {
-  "MAP_DNCPmini"
+lambda_tag <- format(g_drpi_lambda, scientific = FALSE, trim = TRUE)
+g_drpi_export_name <- if (lambda_sensitivity_output) {
+  paste0("G-DRPI_lambda_", lambda_tag)
 } else {
-  "DNCP-mini"
+  "G-DRPI"
 }
-write_method_csv(RUN_DNCP,       dncp_export_name,     DNCP_Coverage,     DNCP_Length)
-write_method_csv(RUN_DNCP_MINI,  dncpmini_export_name, DNCPmini_Coverage, DNCPmini_Length)
+write_method_csv(RUN_C_DRPI, "C-DRPI", C_DRPI_Coverage, C_DRPI_Length)
+write_method_csv(RUN_G_DRPI, g_drpi_export_name, G_DRPI_Coverage, G_DRPI_Length)
 
 cat(sprintf("\n>>> Export folder: %s\n", export_dir))
 
@@ -1057,6 +1060,9 @@ cat(sprintf("\n>>> Export folder: %s\n", export_dir))
 
 # Post-hoc sample-wise correctness frequency for Diabetes + elastic_net
 if (stage == "frequency") {
+
+  # This standalone stage uses the requested seed range directly.
+  frequency_seeds <- seq.int(start_seed_no, length.out = n_seeds)
   
   export_root2 <- file.path(export_root, "frequency")
   ensure_dir(export_root2)
@@ -1088,15 +1094,15 @@ if (stage == "frequency") {
   cnt_LCPK    <- .init_counter(RUN_LCP_K)
   cnt_LWCI    <- .init_counter(RUN_LWCI)
   cnt_WCP     <- .init_counter(RUN_WCP)
-  cnt_DNCP    <- .init_counter(RUN_DNCP)
-  cnt_DNCPmini <- .init_counter(RUN_DNCP_MINI)
+  cnt_C_DRPI    <- .init_counter(RUN_C_DRPI)
+  cnt_G_DRPI <- .init_counter(RUN_G_DRPI)
   cnt_ACPI    <- .init_counter(RUN_ACPI)
   
   cat("\n==================== Post-hoc sample-wise frequency ====================\n")
-  cat(sprintf("Re-run %d valid seeds to compute per-sample correctness frequency...\n",
-              length(valid_original_seeds)))
+  cat(sprintf("Evaluate %d seeds to compute per-sample correctness frequency...\n",
+              length(frequency_seeds)))
   
-  for (ss in valid_original_seeds) {
+  for (ss in frequency_seeds) {
     set.seed(ss)
     
     n <- nrow(x_all)
@@ -1123,7 +1129,7 @@ if (stage == "frequency") {
     x_te <- x_te[te_keep,,drop=FALSE]; y_te <- y_te[te_keep]
     test_id_kept <- test_id[te_keep]
     
-    need_yhat <- any(c(RUN_SPLIT_CP, RUN_LCP_G, RUN_LCP_K, RUN_LWCI, RUN_WCP, RUN_DNCP, RUN_DNCP_MINI))
+    need_yhat <- any(c(RUN_SPLIT_CP, RUN_LCP_G, RUN_LCP_K, RUN_LWCI, RUN_WCP, RUN_C_DRPI, RUN_G_DRPI))
     if (need_yhat) {
       yhat_ca <- fit_and_predict(base_model, x_tr, y_tr, x_ca, alpha_en, rf_ntree)
       yhat_te <- fit_and_predict(base_model, x_tr, y_tr, x_te, alpha_en, rf_ntree)
@@ -1227,7 +1233,7 @@ if (stage == "frequency") {
       cnt_WCP <- .update_counter(cnt_WCP, test_id_kept, covered)
     }
     
-    if (RUN_DNCP) {
+    if (RUN_C_DRPI) {
       res_ca_signed <- y_ca - yhat_ca
       df_x_ca <- as.data.frame(x_ca, check.names = FALSE)
       df_ca_resid <- data.frame(resid = res_ca_signed, df_x_ca, check.names = FALSE)
@@ -1241,12 +1247,12 @@ if (stage == "frequency") {
                                mincriterion = 0.9)
       
       set.seed(ss)
-      fam <- .get_family(dncp_family_active)
-      param_names <- .get_param_names(dncp_family_active)
-      qFUN <- .get_qfun(dncp_family_active)
+      fam <- .get_family(c_drpi_family_active)
+      param_names <- .get_param_names(c_drpi_family_active)
+      qFUN <- .get_qfun(c_drpi_family_active)
       
       df_resid_model <- distforest(resid ~ ., data = df_ca_resid_f,
-                                   family = fam, ntree = dncp_ntree,
+                                   family = fam, ntree = c_drpi_ntree,
                                    control = ctrl, trace = FALSE)
       
       df_x_te <- as.data.frame(x_te, check.names = FALSE)
@@ -1267,22 +1273,22 @@ if (stage == "frequency") {
       upper <- y_center + (qU - mu_resid)
       
       covered <- as.numeric(y_te >= lower & y_te <= upper)
-      cnt_DNCP <- .update_counter(cnt_DNCP, test_id_kept, covered)
+      cnt_C_DRPI <- .update_counter(cnt_C_DRPI, test_id_kept, covered)
     }
     
     
-    if (RUN_DNCP_MINI) {
-      dncpmini_res <- .run_dncpmini(
+    if (RUN_G_DRPI) {
+      g_drpi_res <- .run_g_drpi(
         x_ca    = x_ca, y_ca = y_ca,
         x_te    = x_te, y_te = y_te,
         yhat_ca = yhat_ca, yhat_te = yhat_te,
         alpha   = alpha_level, k_tail = k_tail,
-        lambda  = dncpmini_lambda,
-        family  = dncpmini_family_active,
+        lambda  = g_drpi_lambda,
+        family  = g_drpi_family_active,
         seed    = ss
       )
-      covered <- as.numeric(y_te >= dncpmini_res$lower & y_te <= dncpmini_res$upper)
-      cnt_DNCPmini <- .update_counter(cnt_DNCPmini, test_id_kept, covered)
+      covered <- as.numeric(y_te >= g_drpi_res$lower & y_te <= g_drpi_res$upper)
+      cnt_G_DRPI <- .update_counter(cnt_G_DRPI, test_id_kept, covered)
     }
     
     
@@ -1316,8 +1322,8 @@ if (stage == "frequency") {
   if (RUN_LWCI)     freq_df$LWCI         <- .freq(cnt_LWCI)
   if (RUN_WCP)      freq_df$WCP          <- .freq(cnt_WCP)
   if (RUN_ACPI)     freq_df$ACPI         <- .freq(cnt_ACPI)
-  if (RUN_DNCP)      freq_df$DNCP          <- .freq(cnt_DNCP)
-  if (RUN_DNCP_MINI) freq_df[["DNCP-mini"]] <- .freq(cnt_DNCPmini)
+  if (RUN_C_DRPI) freq_df[["C-DRPI"]] <- .freq(cnt_C_DRPI)
+  if (RUN_G_DRPI) freq_df[["G-DRPI"]] <- .freq(cnt_G_DRPI)
   
   alg_cols <- setdiff(names(freq_df), "SampleIndex")
   sd_vec <- vapply(alg_cols, function(nm) sd(freq_df[[nm]], na.rm = TRUE), numeric(1))
@@ -1404,8 +1410,8 @@ if (stage == "case337") {
   store_LCPK    <- .init_vec_store(RUN_LCP_K)
   store_LWCI    <- .init_vec_store(RUN_LWCI)
   store_WCP     <- .init_vec_store(RUN_WCP)
-  store_DNCP    <- .init_vec_store(RUN_DNCP)
-  store_DNCPmini <- .init_vec_store(RUN_DNCP_MINI)
+  store_C_DRPI    <- .init_vec_store(RUN_C_DRPI)
+  store_G_DRPI <- .init_vec_store(RUN_G_DRPI)
   store_ACPI    <- .init_vec_store(RUN_ACPI)
   
   seed_hist_target <- integer(0)
@@ -1458,7 +1464,7 @@ if (stage == "case337") {
     
     seed_hist_target <- c(seed_hist_target, ss)
     
-    need_yhat <- any(c(RUN_SPLIT_CP, RUN_LCP_G, RUN_LCP_K, RUN_LWCI, RUN_WCP, RUN_DNCP, RUN_DNCP_MINI))
+    need_yhat <- any(c(RUN_SPLIT_CP, RUN_LCP_G, RUN_LCP_K, RUN_LWCI, RUN_WCP, RUN_C_DRPI, RUN_G_DRPI))
     if (need_yhat) {
       yhat_ca <- fit_and_predict(base_model, x_tr, y_tr, x_ca, alpha_en, rf_ntree)
       yhat_te <- fit_and_predict(base_model, x_tr, y_tr, x_te, alpha_en, rf_ntree)
@@ -1563,7 +1569,7 @@ if (stage == "case337") {
       store_WCP <- .append_target(store_WCP, corr[pos], lenv[pos], lower[pos], upper[pos])
     }
     
-    if (RUN_DNCP) {
+    if (RUN_C_DRPI) {
       res_ca_signed <- y_ca - yhat_ca
       df_x_ca <- as.data.frame(x_ca, check.names = FALSE)
       df_ca_resid <- data.frame(resid = res_ca_signed, df_x_ca, check.names = FALSE)
@@ -1574,12 +1580,12 @@ if (stage == "case337") {
                                minbucket = max(10,floor(0.2 * ncal_f)),
                                mincriterion = 0.9)
       set.seed(ss)
-      fam <- .get_family(dncp_family_active)
-      param_names <- .get_param_names(dncp_family_active)
-      qFUN <- .get_qfun(dncp_family_active)
+      fam <- .get_family(c_drpi_family_active)
+      param_names <- .get_param_names(c_drpi_family_active)
+      qFUN <- .get_qfun(c_drpi_family_active)
       
       df_resid_model <- distforest(resid ~ ., data = df_ca_resid_f,
-                                   family = fam, ntree = dncp_ntree,
+                                   family = fam, ntree = c_drpi_ntree,
                                    control = ctrl, trace = FALSE)
       
       df_x_te <- as.data.frame(x_te, check.names = FALSE)
@@ -1600,25 +1606,25 @@ if (stage == "case337") {
       
       lenv <- upper - lower
       corr <- (y_te >= lower) & (y_te <= upper)
-      store_DNCP <- .append_target(store_DNCP, corr[pos], lenv[pos], lower[pos], upper[pos])
+      store_C_DRPI <- .append_target(store_C_DRPI, corr[pos], lenv[pos], lower[pos], upper[pos])
     }
     
     
-    if (RUN_DNCP_MINI) {
-      dncpmini_res <- .run_dncpmini(
+    if (RUN_G_DRPI) {
+      g_drpi_res <- .run_g_drpi(
         x_ca    = x_ca, y_ca = y_ca,
         x_te    = x_te, y_te = y_te,
         yhat_ca = yhat_ca, yhat_te = yhat_te,
         alpha   = alpha_level, k_tail = k_tail,
-        lambda  = dncpmini_lambda,
-        family  = dncpmini_family_active,
+        lambda  = g_drpi_lambda,
+        family  = g_drpi_family_active,
         seed    = ss
       )
-      lower <- as.numeric(dncpmini_res$lower)
-      upper <- as.numeric(dncpmini_res$upper)
+      lower <- as.numeric(g_drpi_res$lower)
+      upper <- as.numeric(g_drpi_res$upper)
       lenv  <- upper - lower
       corr  <- (y_te >= lower) & (y_te <= upper)
-      store_DNCPmini <- .append_target(store_DNCPmini, corr[pos], lenv[pos], lower[pos], upper[pos])
+      store_G_DRPI <- .append_target(store_G_DRPI, corr[pos], lenv[pos], lower[pos], upper[pos])
     }
     
     
@@ -1685,8 +1691,8 @@ if (stage == "case337") {
   add_row(RUN_LWCI,     "LWCI",         store_LWCI)
   add_row(RUN_WCP,      "WCP",          store_WCP)
   add_row(RUN_ACPI,     "ACPI",         store_ACPI)
-  add_row(RUN_DNCP,       "DNCP",        store_DNCP)
-  add_row(RUN_DNCP_MINI,  "DNCP-mini",   store_DNCPmini)
+  add_row(RUN_C_DRPI,       "C-DRPI",        store_C_DRPI)
+  add_row(RUN_G_DRPI,  "G-DRPI",   store_G_DRPI)
   
   cat("\n==================== Summary for sample_id=337 ====================\n")
   print(out_one, row.names = FALSE)

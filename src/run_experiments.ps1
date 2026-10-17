@@ -78,7 +78,7 @@ switch ($Stage) {
         foreach ($lambda in @('0','0.25','0.5','0.75','1')) {
             foreach ($cell in $matrix) {
                 Invoke-RecordedR 'conformal_prediction_pipeline.R' @('--stage=main',"--dataset=$($cell[0])","--base-model=$($cell[1])",
-                    '--method=dncp-mini',"--n-seeds=$Seeds","--dncpmini-lambda=$lambda",'--lambda-sensitivity-output=true',
+                    '--method=G-DRPI',"--n-seeds=$Seeds","--g-drpi-lambda=$lambda",'--lambda-sensitivity-output=true',
                     "--data-root=$DataRoot","--export-root=$(Join-Path $OutputRoot 'sensitivity')")
             }
         }

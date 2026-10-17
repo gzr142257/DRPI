@@ -72,17 +72,17 @@ def main():
     for dataset, model in MATRIX:
         key = dataset + model
         folder = batch / 'main/results' / key
-        if key != inflight_main and not (folder / 'MAP_DNCPmini.csv').exists():
+        if key != inflight_main and not (folder / 'G-DRPI.csv').exists():
             jobs['main'].append(('main', key, 'conformal_prediction_pipeline.R', [
                 '--stage=main', f'--dataset={dataset}', f'--base-model={model}', '--method=all', '--n-seeds=100',
                 f'--data-root={data}', f'--export-root={batch / "main/results"}']))
         for value in [0, .25, .5, .75, 1]:
             lambda_key = f'{key}_lambda_{value:g}'
-            path = batch / 'sensitivity/sensitivity' / key / f'DNCPmini_lambda_{value:g}.csv'
+            path = batch / 'sensitivity/sensitivity' / key / f'G-DRPI_lambda_{value:g}.csv'
             if lambda_key != inflight_sensitivity and not path.exists():
                 jobs['sensitivity'].append(('sensitivity', lambda_key, 'conformal_prediction_pipeline.R', [
-                    '--stage=main', f'--dataset={dataset}', f'--base-model={model}', '--method=dncp-mini',
-                    '--n-seeds=100', f'--dncpmini-lambda={value:g}', '--lambda-sensitivity-output=true',
+                    '--stage=main', f'--dataset={dataset}', f'--base-model={model}', '--method=G-DRPI',
+                    '--n-seeds=100', f'--g-drpi-lambda={value:g}', '--lambda-sensitivity-output=true',
                     f'--data-root={data}', f'--export-root={batch / "sensitivity/sensitivity"}']))
     for cell in range(1, 49):
         if not (batch / 'stability/results' / f'cell_{cell:02d}_replicates.csv').exists():
@@ -115,19 +115,19 @@ def main():
     missing = []
     for dataset, model in MATRIX:
         folder = dataset + model
-        for method in ['SplitCP', 'LCP_Gaussian', 'LCP_kNN', 'LWCI', 'WCP', 'ACPI', 'DRF', 'MAP_DNCPmini']:
+        for method in ['SplitCP', 'LCP_Gaussian', 'LCP_kNN', 'LWCI', 'WCP', 'ACPI', 'C-DRPI', 'G-DRPI']:
             path = batch / 'main/results' / folder / (method + '.csv')
             if not path.exists():
                 missing.append(str(path))
         for value in [0, .25, .5, .75, 1]:
-            path = batch / 'sensitivity/sensitivity' / folder / f'DNCPmini_lambda_{value:g}.csv'
+            path = batch / 'sensitivity/sensitivity' / folder / f'G-DRPI_lambda_{value:g}.csv'
             if not path.exists():
                 missing.append(str(path))
     missing += [str(batch / 'stability/results' / f'cell_{cell:02d}_replicates.csv')
                 for cell in range(1, 49)
                 if not (batch / 'stability/results' / f'cell_{cell:02d}_replicates.csv').exists()]
     if not missing:
-        original = ROOT / 'experiment_results/DNCPmini_tau_table.csv'
+        original = ROOT / 'experiment_results/G-DRPI_tau_table.csv'
         with original.open(encoding='utf-8-sig', newline='') as stream:
             table = list(csv.reader(stream))
         for cell in range(1, 49):
@@ -136,7 +136,7 @@ def main():
                 raise ValueError(f'Wrong repetition count: cell {cell}')
             ai, remainder = divmod(cell - 1, 12)
             table[ai + 2][remainder + 1] = f'{sum(r["WithinTolerance"] == "TRUE" for r in rows) / 1000:.4f}'
-        with (batch / 'stability/results/DNCPmini_tau_table.csv').open('w', encoding='utf-8', newline='') as stream:
+        with (batch / 'stability/results/G-DRPI_tau_table.csv').open('w', encoding='utf-8', newline='') as stream:
             csv.writer(stream).writerows(table)
     state = dict(status='complete' if not missing else 'failed', errors=errors, missing=missing,
                  ended_utc=datetime.datetime.now(datetime.timezone.utc).isoformat())

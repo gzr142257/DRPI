@@ -2,7 +2,7 @@
 from pathlib import Path
 import csv,json,subprocess,tempfile,argparse,shutil
 ROOT=Path(__file__).resolve().parent
-ALL={'splitcp','lcp-gaussian','lcp-knn','lwci','wcp','acpi','dncp','dncp-mini'}
+ALL={'splitcp','lcp-gaussian','lcp-knn','lwci','wcp','acpi','C-DRPI','G-DRPI'}
 def main():
  ap=argparse.ArgumentParser()
  ap.add_argument('--rscript',default=shutil.which('Rscript'),help='Rscript executable; defaults to Rscript on PATH.')
@@ -15,7 +15,10 @@ def main():
  args.rscript=resolved_rscript
  checks=[]
  with tempfile.TemporaryDirectory(prefix='drpi_entry_checks_') as temp:
-  for method,expected in [('all',ALL),('wcp',{'wcp'}),('both',{'dncp','dncp-mini'}),('c-drpi,g-drpi',{'dncp','dncp-mini'})]:
+  for method,expected in [('all',ALL),('wcp',{'wcp'}),('both',{'C-DRPI','G-DRPI'}),
+                          ('C-DRPI',{'C-DRPI'}),('G-DRPI',{'G-DRPI'}),
+                          ('C-DRPI,G-DRPI',{'C-DRPI','G-DRPI'}),
+                          ('c-drpi,g-drpi',{'C-DRPI','G-DRPI'})]:
    run_root=Path(temp)/method.replace(',','_')
    cmd=[args.rscript,str(ROOT/'conformal_prediction_pipeline.R'),'--check-config=true',f'--method={method}',f'--runs-root={run_root}']
    proc=subprocess.run(cmd,capture_output=True,text=True,errors='replace')
@@ -26,6 +29,11 @@ def main():
    assert enabled==expected,(method,enabled)
    assert not (run/'inputs.csv').exists(),'Configuration check unexpectedly loaded model inputs'
    checks.append({'method':method,'enabled':sorted(enabled),'passed':True})
+  for option in ['--method=unknown-method','--method=all,unknown-method','--unknown-option=true']:
+   proc=subprocess.run([args.rscript,str(ROOT/'conformal_prediction_pipeline.R'),
+                        '--check-config=true',option,f'--runs-root={Path(temp)/"invalid"}'],
+                       capture_output=True,text=True,errors='replace')
+   assert proc.returncode!=0,('Invalid configuration was accepted',option)
  report={'models_executed':False,'checks':checks}
  (ROOT/'entry_validation.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
  print(json.dumps(report,indent=2))

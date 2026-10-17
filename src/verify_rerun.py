@@ -17,7 +17,7 @@ SETTINGS = ['sim_NOelastic_net', 'sim1elastic_net', 'sim1random_forest',
             'sim2elastic_net', 'sim2random_forest', 'sim3elastic_net', 'sim3random_forest',
             'Concreteelastic_net', 'Concreterandom_forest', 'Diabeteselastic_net',
             'Diabetesrandom_forest', 'WineRedelastic_net', 'WineRedrandom_forest']
-METHODS = ['SplitCP', 'LCP_Gaussian', 'LCP_kNN', 'LWCI', 'WCP', 'ACPI', 'DRF', 'MAP_DNCPmini']
+METHODS = ['SplitCP', 'LCP_Gaussian', 'LCP_kNN', 'LWCI', 'WCP', 'ACPI', 'C-DRPI', 'G-DRPI']
 
 
 def read(path):
@@ -95,8 +95,8 @@ def main():
                     errors.append(f'{setting}: main method seeds differ')
         reference_seeds = None
         for value in [0, .25, .5, .75, 1]:
-            path = batch / 'sensitivity/sensitivity' / setting / f'DNCPmini_lambda_{value:g}.csv'
-            seeds = compare(path, ROOT / 'sensitivity_analysis/dncpmini_lambda' / setting / path.name,
+            path = batch / 'sensitivity/sensitivity' / setting / f'G-DRPI_lambda_{value:g}.csv'
+            seeds = compare(path, ROOT / 'sensitivity_analysis/G-DRPI_lambda' / setting / path.name,
                             'sensitivity', setting)
             if seeds is not None:
                 if reference_seeds is None:
@@ -107,8 +107,8 @@ def main():
     alpha = [.20, .15, .10, .05]
     epsilon = [.1, .05, .01, .005]
     tau = [.90, .95, .99]
-    table_path = batch / 'stability/results/DNCPmini_tau_table.csv'
-    old_table = matrix(ROOT / 'experiment_results/DNCPmini_tau_table.csv')
+    table_path = batch / 'stability/results/G-DRPI_tau_table.csv'
+    old_table = matrix(ROOT / 'experiment_results/G-DRPI_tau_table.csv')
     if args.finalize and all((batch / 'stability/results' / f'cell_{cell:02d}_replicates.csv').exists() for cell in range(1, 49)):
         assembled = [row.copy() for row in old_table]
         for cell in range(1, 49):

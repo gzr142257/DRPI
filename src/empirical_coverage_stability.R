@@ -8,10 +8,10 @@ source(file.path(dirname(.entry_path), "run_records.R"))
   script_dir <- dirname(.entry_path)
 ## =========================================================
 ##   Universal-style Toy experiment (Version B) - FIXED
-##   DNCP-mini only (Global JSU), fixed training set once
+##   G-DRPI only (Global JSU), fixed training set once
 ##
 ##   Output: CSV table skeleton same as your figure, but
-##           each cell is tau_hat(DNCP-mini) instead of n.
+##           each cell is tau_hat(G-DRPI) instead of n.
 ## =========================================================
 
 ## ------------------------- Configuration -------------------------
@@ -22,7 +22,7 @@ seed_max <- 1000
 k_tail <- 2
 
 
-dncpmini_vi_steps <- 500
+g_drpi_vi_steps <- 500
 
 if ("--help" %in% commandArgs(TRUE)) {
   cat("--mode=experiment|reference --seed-max=1000 --n-train=10000 --n-test=300000 --cells=1,2,...,48 --export-root=PATH --runs-root=PATH\n")
@@ -37,7 +37,7 @@ selected_cells <- as.integer(strsplit(drpi_cli("cells", paste(seq_len(48), colla
 if (!length(selected_cells) || anyNA(selected_cells) || any(!selected_cells %in% seq_len(48)) || anyDuplicated(selected_cells)) stop("cells must be distinct integers from 1 to 48.")
 if (any(!is.finite(c(n_train,n_test,seed_max))) || min(n_train,n_test,seed_max)<1) stop("Invalid sample sizes.")
 out_dir <- drpi_cli("export-root", file.path(.drpi_record$dir, "results"))
-out_csv <- file.path(out_dir, "DNCPmini_tau_table.csv")
+out_csv <- file.path(out_dir, "G-DRPI_tau_table.csv")
 .drpi_record$output_roots <- out_dir
 drpi_config(list(mode=mode,n_train=n_train,n_test=n_test,seed_max=seed_max,training_seed=20260127,lambda=0.5,cells=selected_cells))
 
@@ -128,8 +128,8 @@ fit_frozen_lm <- function(X_tr, y_tr) {
   list(coef = co, predict = pred_fun, lm_fit = lm_fit)
 }
 
-## -------------------- DNCP-mini: Global JSU Fit -------------------
-fit_jsu_global <- function(resid_vec, n_penalty, maxit = dncpmini_vi_steps) {
+## -------------------- G-DRPI: Global JSU Fit -------------------
+fit_jsu_global <- function(resid_vec, n_penalty, maxit = g_drpi_vi_steps) {
   resid <- as.numeric(resid_vec)
   resid <- resid[is.finite(resid)]
   n <- length(resid)
@@ -188,8 +188,8 @@ fit_jsu_global <- function(resid_vec, n_penalty, maxit = dncpmini_vi_steps) {
   list(mu = mu_r, sigma = sigma_r, nu = nu_r, tau = tau_r, converged = (opt$convergence == 0))
 }
 
-## -------------------- DNCP-mini Single Run: Return Coverage -------------------
-run_dncp_mini_once <- function(pred_fun, n_cal, n_test, alpha,
+## -------------------- G-DRPI Single Run: Return Coverage -------------------
+run_g_drpi_once <- function(pred_fun, n_cal, n_test, alpha,
                                k_tail = 2) {
   
   n_cal <- as.integer(n_cal)
@@ -221,10 +221,10 @@ run_dncp_mini_once <- function(pred_fun, n_cal, n_test, alpha,
   resid_cal_f <- resid_cal
   
   # global JSU fit
-  jsu <- fit_jsu_global(resid_cal_f, n_penalty = n_cal_orig, maxit = dncpmini_vi_steps)
+  jsu <- fit_jsu_global(resid_cal_f, n_penalty = n_cal_orig, maxit = g_drpi_vi_steps)
   mu_r <- jsu$mu; sigma_r <- jsu$sigma; nu_r <- jsu$nu; tau_r <- jsu$tau
   
-  # base resid quantiles (keep your original closed-form JSU quantile mapping)
+  # base resid quantiles (keep your original closed-form JSU quantile formula)
   pL <- alpha / k_tail
   pU <- 1 - alpha / k_tail
   zL <- qnorm(pL)
@@ -268,7 +268,7 @@ cat("\n")
 ## (2) Combination table (using the n_cal values from your figure)
 ## =========================================================
 ## =========================================================
-## (3) Iterate over all 48 cells and estimate tau_hat(DNCP-mini)
+## (3) Iterate over all 48 cells and estimate tau_hat(G-DRPI)
 ## =========================================================
 tau_hat_array <- array(NA_real_,
                        dim = c(length(alpha_grid), length(epsilon_grid), length(tau_targets)),
@@ -300,7 +300,7 @@ for (ai in seq_along(alpha_grid)) {
       
       for (s in 1:seed_max) {
         set.seed(1000000L * combo_id + s)
-        cov_vec[s] <- run_dncp_mini_once(
+        cov_vec[s] <- run_g_drpi_once(
           pred_fun = pred_fun,
           n_cal = n_cal,
           n_test = n_test,
@@ -317,7 +317,7 @@ for (ai in seq_along(alpha_grid)) {
       tau_hat <- mean(abs(cov_vec - target_cov) <= epsilon_tol)
       tau_hat_array[ai, ei, ti] <- tau_hat
       
-      cat(sprintf("  -> tau_hat(DNCP-mini) = %.4f\n\n", tau_hat))
+      cat(sprintf("  -> tau_hat(G-DRPI) = %.4f\n\n", tau_hat))
     }
   }
 }

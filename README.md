@@ -6,10 +6,10 @@ DRPI（分布型残差预测区间）实验源码。主要计算使用 R；Pytho
 
 ## Methods
 
-| Paper name | Command-line method | Legacy result filename |
+| Method | Command-line method | Result filename |
 | --- | --- | --- |
-| C-DRPI (conditional residual distribution) | `c-drpi` or `dncp` | `DRF.csv` |
-| G-DRPI (global residual distribution) | `g-drpi` or `dncp-mini` | `MAP_DNCPmini.csv` |
+| C-DRPI (conditional residual distribution) | `C-DRPI` | `C-DRPI.csv` |
+| G-DRPI (global residual distribution) | `G-DRPI` | `G-DRPI.csv` |
 | Split conformal prediction | `splitcp` | `SplitCP.csv` |
 | Local conformal, Gaussian kernel | `lcp-gaussian` | `LCP_Gaussian.csv` |
 | Local conformal, nearest neighbors | `lcp-knn` | `LCP_kNN.csv` |
@@ -18,6 +18,10 @@ DRPI（分布型残差预测区间）实验源码。主要计算使用 R；Pytho
 | ACPI | `acpi` | `ACPI.csv` |
 
 Use `--method=both` for the two DRPI variants, `--method=all` for all eight methods, or a comma-separated subset. Evaluate coverage, interval length, and variation together. The implemented DRPI procedures do not establish finite-sample distribution-free coverage for their data-reuse construction.
+
+`C-DRPI` and `G-DRPI` are the canonical method names in command examples, logs, result labels, and filenames. Method selection is case-insensitive. Internal R identifiers use `c_drpi`/`C_DRPI` and `g_drpi`/`G_DRPI` because a hyphen is an operator in R; these identifiers refer to the same two methods.
+
+G-DRPI's expansion factor is selected with `--g-drpi-lambda=0.5`. With `--lambda-sensitivity-output=true`, its output is named `G-DRPI_lambda_<value>.csv`. The stability table is `G-DRPI_tau_table.csv`, and case-analysis records are `C-DRPI_replicates.csv` and `G-DRPI_replicates.csv`. All supplied result-reading tools use these same filenames.
 
 ## Installation
 
@@ -61,7 +65,7 @@ Rscript src/theoretical_proof_numerical_integration.R --mode=single --n=50 --alp
 Run the two DRPI methods for one split of the built-in normal simulation (requires the main R dependencies):
 
 ```sh
-Rscript src/conformal_prediction_pipeline.R --stage=main --dataset=sim_NO --base-model=elastic_net --method=both --n-seeds=1 --export-root=outputs/demo --runs-root=runs
+Rscript src/conformal_prediction_pipeline.R --stage=main --dataset=sim_NO --base-model=elastic_net --method=C-DRPI,G-DRPI --n-seeds=1 --export-root=outputs/demo --runs-root=runs
 ```
 
 Check method selection without loading model dependencies or fitting models:
@@ -113,7 +117,7 @@ Each R execution writes a fresh record directory containing configuration, sessi
 
 `generate_latex.py`, `run_parallel_experiments.py`, `verify_rerun.py`, and `complete_rerun.py` preserve the original research-maintenance code. They require manuscript templates, existing result files, and/or recorded batch plans that are not part of this source release. `complete_rerun.py` uses Windows process APIs. See [the requirements for these tools](docs/research-tools.md) before running them.
 
-This release contains the active source code, with two portability fixes: locating `Rscript` for the entry checker and making the reference-paper PDF optional. Numerical algorithms are unchanged. Historical runs, manuscript files, reference PDFs, raw datasets, and previous result archives are not included.
+This release uses consistent C-DRPI and G-DRPI names across source code, command-line options, output files, and research tools. The entry checker locates `Rscript`, and the reference-paper PDF is optional. Historical runs, manuscript files, reference PDFs, raw datasets, and previous result archives are not included. External result collections must use the current naming convention before being read by these tools.
 
 ## License
 
