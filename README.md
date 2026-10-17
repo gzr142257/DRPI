@@ -2,7 +2,7 @@
 
 **Distributional Residual Prediction Intervals** — research code for C-DRPI and G-DRPI, baseline comparisons, empirical coverage stability experiments, and Gaussian interval-length variance calculations.
 
-DRPI（残差分布预测区间）实验源码。主要计算使用 R；Python 和 PowerShell 提供入口检查、批处理及论文结果维护工具。下方示例均从仓库根目录运行。
+DRPI（分布型残差预测区间）实验源码。主要计算使用 R；Python 和 PowerShell 提供入口检查、批处理及论文结果维护工具。下方示例均从仓库根目录运行。
 
 ## Methods
 
